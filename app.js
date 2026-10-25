@@ -356,9 +356,9 @@
     $("addItemsBtn").disabled = busy || count === 0;
   }
 
-  async function copyAll() {
-    await refreshList();
-    if (vaultKey) await copyText(items.map(x => x.text).join("\n"));
+  function copyAll() {
+    // Clipboard writes must start while the user's click activation is active.
+    if (vaultKey && !busy) void copyText(items.map(x => x.text).join("\n"));
   }
 
   function performLock() {
@@ -438,6 +438,7 @@
       $("unlockPass").value = "";
       showScreen("app");
       changeView("draw");
+      render();
       $("saveState").textContent = "Sparad på enheten";
     } catch (error) {
       vaultKey = null;
