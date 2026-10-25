@@ -24,26 +24,37 @@ async function addThree(page) {
 }
 
 test("private list, newlines, random removal, and persistence across reload", async ({ page }) => {
+  console.log("smoke: create");
   await createVault(page);
+  console.log("smoke: created");
   await addThree(page);
+  console.log("smoke: added");
   await expect(page.locator("#listItems .item-text")).toHaveText([FIRST, SECOND, THIRD]);
+  console.log("smoke: opening draw");
   await page.locator("#tabDraw").click();
+  console.log("smoke: draw opened");
   await page.locator("#drawBtn").click();
+  console.log("smoke: drawn");
   await expect(page.locator("#remainingCount")).toHaveText("2");
   const selected = await page.locator("#selectionText").textContent();
   expect([FIRST, SECOND, THIRD]).toContain(selected);
+  console.log("smoke: opening list");
   await page.locator("#tabList").click();
+  console.log("smoke: list opened");
   await expect(page.locator("#listItems .item-text")).toHaveCount(2);
   const remaining = await page.locator("#listItems .item-text").allTextContents();
   expect(remaining).not.toContain(selected);
 
+  console.log("smoke: reloading");
   await page.reload();
+  console.log("smoke: reloaded");
   await expect(page.locator("#screen-unlock")).toBeVisible();
   await page.locator("#unlockPass").fill("incorrect-password");
   await page.locator("#unlockBtn").click();
   await expect(page.locator("#screen-app")).toBeHidden();
   await page.locator("#unlockPass").fill(PASSWORD);
   await page.locator("#unlockBtn").click();
+  console.log("smoke: unlocked");
   await expect(page.locator("#screen-app")).toBeVisible();
   await expect(page.locator("#remainingCount")).toHaveText("2");
   await page.locator("#tabList").click();
