@@ -194,3 +194,112 @@ test("old password vault migrates to a four-stroke pattern without losing remain
   await drawPattern(page, "#unlockPattern");
   await expect(page.locator("#remainingCount")).toHaveText("2");
 });
+
+
+test("chosen duration persists across a closed browser tab without another gesture", async ({ page, context }) => {
+  await createVault(page);
+  await addThree(page);
+  await page.locator("#tabSettings").click();
+  await page.locator("#sessionDuration").selectOption("3600000");
+  await expect(page.locator("#sessionStatus")).toContainText("Upplåst till");
+  const stored = await page.evaluate(async () => {
+    const db = await new Promise((resolve,reject) => {
+      const req = indexedDB.open("slumpval-local-vault-v1");
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+    });
+    const tx=db.transaction("vault","readonly");
+    const entries=await Promise.all(["session","lockDuration"].map(key=>new Promise((resolve,reject)=>{
+      const q=tx.objectStore("vault").get(key);
+      q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);
+    })));
+    db.close();
+    return {session:entries[0],duration:entries[1]};
+  });
+  expect(stored.duration).toBe(3600000);
+  expect(stored.session).toHaveProperty("key");
+  expect(stored.session.key.extractable).toBe(false);
+  expect(stored.session).not.toHaveProperty("pattern");
+  expect(stored.session.expiresAt).toBeGreaterThan(Date.now());
+  await page.close();
+  const reopened = await context.newPage();
+  await reopened.goto("/");
+  await expect(reopened.locator("#screen-app")).toBeVisible();
+  await expect(reopened.locator("#remainingCount")).toHaveText("3");
+  await reopened.locator("#tabSettings").click();
+  await expect(reopened.locator("#sessionDuration")).toHaveValue("3600000");
+  await reopened.locator("#lockNowBtn").click();
+  await expect(reopened.locator("#screen-unlock")).toBeVisible();
+  await reopened.reload();
+  await expect(reopened.locator("#screen-unlock")).toBeVisible();
+  await drawPattern(reopened, "#unlockPattern");
+  await expect(reopened.locator("#remainingCount")).toHaveText("3");
+});
+
+test("expired saved session requires gesture; setting can revert to lock on exit", async ({ page }) => {
+  await createVault(page);
+  await page.locator("#tabSettings").click();
+  await page.locator("#sessionDuration").selectOption("900000");
+  await expect(page.locator("#sessionStatus")).toContainText("Upplåst till");
+  await page.evaluate(async () => {
+    const db=await new Promise((resolve,reject)=>{
+      const req=indexedDB.open("slumpval-local-vault-v1");
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+    });
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction("vault","readwrite");
+      const store=tx.objectStore("vault");
+      const req=store.get("session");
+      req.onsuccess=()=>{
+        const record=req.result;
+        record.authAt=Date.now()-910000;
+        record.expiresAt=record.authAt+900000;
+        store.put(record, "session");
+      };
+      tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
+    });
+    db.close();
+  });
+  await page.reload();
+  await expect(page.locator("#screen-unlock")).toBeVisible();
+  await drawPattern(page, "#unlockPattern");
+  await expect(page.locator("#screen-app")).toBeVisible();
+  await page.locator("#tabSettings").click();
+  await expect(page.locator("#sessionDuration")).toHaveValue("900000");
+  await page.locator("#sessionDuration").selectOption("0");
+  await expect(page.locator("#sessionStatus")).toContainText("lämnar");
+  await page.reload();
+  await expect(page.locator("#screen-unlock")).toBeVisible();
+});
+
+test("shortening the duration beyond the authentication time locks immediately", async ({ page }) => {
+  await createVault(page);
+  await page.locator("#tabSettings").click();
+  await page.locator("#sessionDuration").selectOption("86400000");
+  await expect(page.locator("#sessionStatus")).toContainText("Upplåst till");
+  // Moving authentication time 20 minutes into the past simulates switching
+  // from a 24h duration to a 15min duration after 20 minutes elapsed.
+  await page.evaluate(async () => {
+    const db=await new Promise((resolve,reject)=>{
+      const req=indexedDB.open("slumpval-local-vault-v1");
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+    });
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction("vault","readwrite");
+      const store=tx.objectStore("vault");
+      const req=store.get("session");
+      req.onsuccess=()=>{
+        const record=req.result;
+        record.authAt-=1200000;
+        record.expiresAt=record.authAt+86400000;
+        store.put(record,"session");
+      };
+      tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
+    });
+    db.close();
+  });
+  await page.reload();
+  await expect(page.locator("#screen-app")).toBeVisible();
+  await page.locator("#tabSettings").click();
+  await page.locator("#sessionDuration").selectOption("900000");
+  await expect(page.locator("#screen-unlock")).toBeVisible();
+});
