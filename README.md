@@ -10,6 +10,13 @@ Privat, installerbar svensk slumpgenerator för iPhone, byggd med HTML/CSS/JavaS
 4. Välj **Dela → Lägg till på hemskärmen**.
 5. **Öppna appen från hemskärmen** och skapa ditt mönsterlås och din lista där. Safari-fliken och hemskärmsappen kan ha olika separat lagring.
 
+
+## Upplåsningstid som gäller även när appen stängs
+
+Öppna **Inställn. → Hur länge ska appen vara upplåst?** och välj **Lås direkt när jag lämnar appen** (standard), **15 minuter**, **1 timme**, **4 timmar**, **12 timmar** eller **24 timmar**. Tiden räknas från **senaste lyckade upplåsningen med mönstret**, inte från senaste appöppning. Om tiden inte löpt ut kan samma installerade app på samma iPhone återöppnas utan nytt mönster efter att den stängts. När tiden gått ut krävs mönstret igen. **Lås appen nu** och hänglåset på startsidan avslutar upplåsningen omedelbart, oavsett vald tid.
+
+För tidsgränser över 0 lagrar appen en **icke-exporterbar Web Crypto-nyckel** lokalt i IndexedDB, tillsammans med en tidpunkt då upplåsningen ska sluta gälla. Detta är avsiktligt mindre säkert än att låsa varje gång, eftersom andra processer och skript med tillgång till appens lokala data kan komma åt nyckeln under denna period. Webbläsarens lagringsrensning kan göra att upplåsningen upphör tidigare. Tidsgränsen är en lokal appkontroll, inte en garanti mot manipulering av enhetens klocka eller forensisk åtkomst. **Välj standardinställningen om sekretess är högsta prioritet.**
+
 ## Funktioner och integritet
 
 - Enter (LF/CRLF/CR) separerar alternativ. Varje icke-tom rad är ett eget alternativ; långa rader radbryts visuellt.
