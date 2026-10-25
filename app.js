@@ -21,6 +21,13 @@
   let setupBoard;
   let unlockBoard;
   let toastTimer;
+  const DURATIONS = new Set([0,900000,3600000,14400000,43200000,86400000]);
+  let unlockDuration = 0;
+  let authenticatedAt = 0;
+  let unlockedUntil = 0;
+  let expiryTimer = null;
+  let discardOnDeferredLock = false;
+  let resuming = false;
 
   function showScreen(id) {
     for (const name of ["loading", "setup", "unlock", "app"]) {
@@ -231,6 +238,7 @@
       vaultKey = key;
       vaultFormat = 2;
       hasVault = true;
+      await recordUnlock();
       firstPattern = null;
       selection = null;
       showScreen("app");
@@ -246,7 +254,7 @@
     } finally {
       busy = false;
       setupBoard.setEnabled(true);
-      if (locking) performLock();
+      if (locking) finishDeferredLock();
       else if (vaultKey && !$("screen-app").classList.contains("hidden")) render();
     }
   }
@@ -287,6 +295,7 @@
       const candidate = await deriveKey("slumpval-pattern-v2:" + pattern, base64ToU8(meta.salt));
       const snapshot = await readSnapshot(candidate);
       vaultKey = candidate;
+      await recordUnlock();
       items = snapshot.items;
       selection = null;
       showScreen("app");
@@ -299,13 +308,166 @@
     } finally {
       busy = false;
       unlockBoard.setEnabled(true);
-      if (locking) performLock();
+      if (locking) finishDeferredLock();
       else if (vaultKey && !$("screen-app").classList.contains("hidden")) render();
     }
   }
 
+
+  function durationFrom(value) {
+    const ms = Number(value);
+    return DURATIONS.has(ms) ? ms : 0;
+  }
+
+  function clearExpiryTimer() {
+    if (expiryTimer !== null) clearTimeout(expiryTimer);
+    expiryTimer = null;
+  }
+
+  function expired() {
+    if (unlockDuration > 0 && vaultKey && Date.now() >= unlockedUntil) {
+      lock(true);
+      return true;
+    }
+    return false;
+  }
+
+  function scheduleExpiry() {
+    clearExpiryTimer();
+    if (vaultKey && unlockDuration > 0) {
+      const timeLeft = unlockedUntil - Date.now();
+      if (timeLeft <= 0) { lock(true); return; }
+      expiryTimer = setTimeout(() => {
+        if (expired()) return;
+        scheduleExpiry();
+      }, Math.min(timeLeft + 25, 2147483647));
+    }
+  }
+
+  function showSessionStatus() {
+    $("sessionDuration").value = String(unlockDuration);
+    $("sessionStatus").textContent = unlockDuration === 0
+      ? "Appen låses när du lämnar den."
+      : unlockedUntil > Date.now()
+        ? "Upplåst till " + new Date(unlockedUntil).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) + "."
+        : "Upplåsningstiden har gått ut.";
+  }
+
+  // Safari/iPhone supports structured-cloning non-extractable CryptoKeys into IndexedDB.
+  // Note: a locally stored key *does* reduce protection during the selected time window.
+  function saveSessionSettings(duration, authTime, key, salt) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      store.put(duration, "lockDuration");
+      if (duration > 0 && key && authTime + duration > Date.now()) {
+        store.put({ key, expiresAt: authTime + duration, authAt: authTime, salt }, "session");
+      } else {
+        store.delete("session");
+      }
+      tx.oncomplete = resolve;
+      tx.onabort = () => reject(tx.error || new Error("Kunde inte spara upplåsningstiden"));
+    });
+  }
+
+  function deleteSavedSession() {
+    if (!db) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete("session");
+      tx.oncomplete = resolve;
+      tx.onabort = () => reject(tx.error || new Error("Kunde inte stänga sessionen"));
+    });
+  }
+
+  async function recordUnlock() {
+    authenticatedAt = Date.now();
+    unlockedUntil = unlockDuration ? authenticatedAt + unlockDuration : 0;
+    const meta = await getValue("meta");
+    try {
+      await saveSessionSettings(unlockDuration, authenticatedAt, vaultKey, meta.salt);
+    } catch (error) {
+      // Fail closed for persistent sessions: unlock only in current foreground.
+      unlockDuration = 0;
+      unlockedUntil = 0;
+      console.warn("Kan inte spara tidsbegränsad inloggning:", error?.name);
+      toast("Tillfällig upplåsning: välj tidsgränsen igen om du vill spara den.");
+    }
+    scheduleExpiry();
+  }
+
+  async function changeDuration(value) {
+    if (!vaultKey || busy || expired()) return;
+    const duration = durationFrom(value);
+    const oldValue = unlockDuration;
+    busy = true;
+    $("sessionDuration").disabled = true;
+    try {
+      const meta = await getValue("meta");
+      await saveSessionSettings(duration, authenticatedAt, vaultKey, meta.salt);
+      unlockDuration = duration;
+      unlockedUntil = duration ? authenticatedAt + duration : 0;
+      if (duration > 0 && Date.now() >= unlockedUntil) {
+        lock(true);
+        return;
+      }
+      scheduleExpiry();
+      showSessionStatus();
+      toast("Upplåsningstiden är sparad.");
+    } catch (error) {
+      unlockDuration = oldValue;
+      errorMessage(error);
+      showSessionStatus();
+    } finally {
+      busy = false;
+      $("sessionDuration").disabled = false;
+      if (locking) finishDeferredLock();
+    }
+  }
+
+  async function resumeSavedSession() {
+    if (resuming || !db || vaultKey || busy) return false;
+    resuming = true;
+    try {
+      const record = await getValue("session");
+      const meta = await getValue("meta");
+      if (!record || !meta || meta.version !== 2 || unlockDuration === 0) return false;
+      if (record.salt !== meta.salt || record.expiresAt !== record.authAt + unlockDuration ||
+        !Number.isFinite(record.authAt) || record.authAt > Date.now() || record.expiresAt <= Date.now()) {
+        await deleteSavedSession();
+        return false;
+      }
+      const snapshot = await readSnapshot(record.key);
+      if (record.expiresAt <= Date.now() || document.hidden) return false;
+      vaultKey = record.key;
+      authenticatedAt = record.authAt;
+      unlockedUntil = record.expiresAt;
+      items = snapshot.items;
+      selection = null;
+      showScreen("app");
+      changeView("draw");
+      render();
+      scheduleExpiry();
+      $("saveState").textContent = "Sparad på enheten";
+      return true;
+    } catch (error) {
+      try { await deleteSavedSession(); } catch (_) {}
+      return false;
+    } finally {
+      resuming = false;
+    }
+  }
+
+  function finishDeferredLock() {
+    if (!locking) return;
+    const discard = discardOnDeferredLock;
+    discardOnDeferredLock = false;
+    performLock(discard);
+    if (!discard && !document.hidden) void resumeSavedSession();
+  }
+
   async function mutate(buildChange) {
-    if (busy || !vaultKey) return { ok: false };
+    if (busy || !vaultKey || expired()) return { ok: false };
     busy = true;
     render();
     $("saveState").textContent = "Sparar lokalt…";
@@ -335,7 +497,7 @@
       busy = false;
       $("saveState").textContent = "Sparad på enheten";
       render();
-      if (locking) performLock();
+      if (locking) finishDeferredLock();
     }
   }
 
@@ -438,7 +600,7 @@
 
   function changeView(view) {
     currentView = view;
-    for (const name of ["draw", "list", "add"]) {
+    for (const name of ["draw", "list", "add", "settings"]) {
       $("view-" + name).classList.toggle("hidden", name !== view);
       const tab = $("tab" + name[0].toUpperCase() + name.slice(1));
       tab.classList.toggle("active", name === view);
@@ -446,11 +608,12 @@
       else tab.removeAttribute("aria-current");
     }
     if (view === "list") refreshList();
+    if (view === "settings") showSessionStatus();
     window.scrollTo(0, 0);
   }
 
   async function refreshList() {
-    if (!vaultKey || busy) return;
+    if (!vaultKey || busy || expired()) return;
     try {
       const snapshot = await readSnapshot();
       if (!vaultKey) return;
@@ -512,11 +675,15 @@
 
   function copyAll() {
     // Clipboard writes must start while the user's click activation is active.
-    if (vaultKey && !busy) void copyText(items.map(x => x.text).join("\n"));
+    if (vaultKey && !busy && !expired()) void copyText(items.map(x => x.text).join("\n"));
   }
 
-  function performLock() {
+  function performLock(discardSession = true) {
+    if (discardSession) void deleteSavedSession().catch(error => console.error("Session:", error.name));
+    clearExpiryTimer();
     vaultKey = null;
+    unlockedUntil = 0;
+    authenticatedAt = 0;
     items = [];
     selection = null;
     firstPattern = null;
@@ -533,16 +700,18 @@
     showAuth();
   }
 
-  function lock() {
+  function lock(discardSession = true) {
     if (busy) {
       locking = true;
+      discardOnDeferredLock = discardSession;
       $("unlockPass").value = "";
       return;
     }
-    firstPattern = null;
     if (vaultKey) {
-      performLock();
+      performLock(discardSession);
     } else {
+      if (discardSession) void deleteSavedSession().catch(() => {});
+      firstPattern = null;
       $("unlockPass").value = "";
       setupBoard?.reset();
       unlockBoard?.reset();
@@ -588,11 +757,15 @@
         tx.onabort = () => reject(tx.error || new Error("Kunde inte återställa valvet"));
       });
       vaultKey = null;
+      clearExpiryTimer();
       hasVault = false;
       items = [];
       selection = null;
       $("unlockPass").value = "";
       vaultFormat = 0;
+      unlockDuration = 0;
+      authenticatedAt = 0;
+      unlockedUntil = 0;
       firstPattern = null;
       beginPatternSetup("new");
       toast("Det lokala valvet har raderats.");
@@ -605,10 +778,13 @@
     unlockBoard = window.SlumpvalPattern.mount($("unlockPattern"), points => { void unlockPattern(points); });
     $("unlockForm").addEventListener("submit", unlockVault);
     $("resetVaultBtn").addEventListener("click", resetVault);
-    $("lockBtn").addEventListener("click", lock);
+    $("lockBtn").addEventListener("click", () => lock(true));
+    $("lockNowBtn").addEventListener("click", () => lock(true));
+    $("sessionDuration").addEventListener("change", () => { void changeDuration($("sessionDuration").value); });
     $("tabDraw").addEventListener("click", () => changeView("draw"));
     $("tabList").addEventListener("click", () => changeView("list"));
     $("tabAdd").addEventListener("click", () => changeView("add"));
+    $("tabSettings").addEventListener("click", () => changeView("settings"));
     $("goToListBtn").addEventListener("click", () => changeView("list"));
     $("drawBtn").addEventListener("click", draw);
     $("copySelectedBtn").addEventListener("click", () => { if (selection) copyText(selection); });
@@ -617,8 +793,12 @@
     $("addItemsBtn").addEventListener("click", addItems);
     $("bulkInput").addEventListener("input", updateInputCount);
     $("clearInputBtn").addEventListener("click", () => { $("bulkInput").value = ""; updateInputCount(); });
-    document.addEventListener("visibilitychange", () => { if (document.hidden) lock(); else if (vaultKey) refreshList(); });
-    window.addEventListener("pagehide", lock);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) lock(false);
+      else if (vaultKey) { if (!expired()) refreshList(); }
+      else void resumeSavedSession();
+    });
+    window.addEventListener("pagehide", () => lock(false));
   }
 
   async function main() {
@@ -633,7 +813,8 @@
       const meta = await getValue("meta");
       hasVault = Boolean(meta);
       vaultFormat = meta?.version === 2 ? 2 : 1;
-      showAuth();
+      unlockDuration = durationFrom(await getValue("lockDuration"));
+      if (!await resumeSavedSession()) showAuth();
     } catch (error) {
       $("screen-loading").querySelector("h1").textContent = "Kan inte öppna lokal lagring";
       $("screen-loading").querySelector("p").textContent = "Kontrollera att webbläsaren tillåter lagring och att du inte använder privat läge.";
