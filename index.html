@@ -31,28 +31,32 @@
       <div class="gate-icon" aria-hidden="true">✳</div>
       <span class="eyebrow">Börja här</span>
       <h1 id="setupTitle">Skapa ditt privata valv</h1>
-      <p>Listorna sparas endast på den här enheten, krypterade med ett lösenord som bara du känner till.</p>
-      <form id="setupForm" class="form-stack">
-        <label for="setupPass">Välj lösenord <small>(minst 8 tecken)</small></label>
-        <input id="setupPass" type="password" autocomplete="new-password" minlength="8" required placeholder="Ditt lösenord">
-        <label for="setupPassAgain">Upprepa lösenord</label>
-        <input id="setupPassAgain" type="password" autocomplete="new-password" minlength="8" required placeholder="Samma lösenord igen">
-        <p class="helper">Lösenordet kan inte återställas. Du behöver det igen när du öppnar appen på nytt.</p>
-        <button class="btn btn-primary btn-wide" id="setupBtn" type="submit">Skapa valv</button>
-      </form>
+      <p id="setupDescription">Rita ett mönster genom att dra fingret mellan punkterna. Minst fyra streck, alltså fem punkter, krävs.</p>
+      <div class="pattern-wrap">
+        <p id="setupStatus" class="pattern-status" role="status" aria-live="polite">Rita ditt nya mönster.</p>
+        <div id="setupPattern" class="pattern-board" role="group" aria-label="Välj mönster genom att dra mellan fem eller fler punkter"></div>
+        <p class="helper text-center">Upprepa mönstret en gång för att bekräfta. Det går inte att återställa om du glömmer det.</p>
+      </div>
     </section>
 
     <section id="screen-unlock" class="gate hidden" aria-labelledby="unlockTitle">
       <div class="gate-icon" aria-hidden="true">✳</div>
       <span class="eyebrow">Lokalt och krypterat</span>
       <h1 id="unlockTitle">Lås upp din lista</h1>
-      <p>Din kvarvarande lista ligger sparad på just den här enheten.</p>
-      <form id="unlockForm" class="form-stack">
-        <label for="unlockPass">Lösenord</label>
-        <input id="unlockPass" type="password" autocomplete="current-password" required placeholder="Ange ditt lösenord">
-        <button class="btn btn-primary btn-wide" id="unlockBtn" type="submit">Lås upp</button>
-      </form>
-      <button id="resetVaultBtn" class="link-btn danger-link" type="button">Glömt lösenordet? Radera det lokala valvet</button>
+      <p id="unlockDescription">Rita ditt sparade mönster för att öppna listan.</p>
+      <div id="unlockPatternArea" class="pattern-wrap">
+        <p id="unlockStatus" class="pattern-status" role="status" aria-live="polite">Dra mönstret mellan punkterna.</p>
+        <div id="unlockPattern" class="pattern-board" role="group" aria-label="Lås upp genom att dra ditt mönster mellan punkterna"></div>
+      </div>
+      <div id="legacyUnlockArea" class="hidden">
+        <form id="unlockForm" class="form-stack">
+          <label for="unlockPass">Tidigare lösenord</label>
+          <input id="unlockPass" type="password" autocomplete="current-password" required placeholder="Ange ditt gamla lösenord">
+          <button class="btn btn-primary btn-wide" id="unlockBtn" type="submit">Fortsätt till mönsterlås</button>
+        </form>
+        <p class="helper">Din befintliga lista bevaras och krypteras om med ditt nya mönster.</p>
+      </div>
+      <button id="resetVaultBtn" class="link-btn danger-link" type="button">Glömt låset? Radera det lokala valvet</button>
     </section>
 
     <section id="screen-app" class="hidden" aria-label="Slumpval">
@@ -110,6 +114,7 @@
   <button id="tabAdd" class="tab" type="button"><span aria-hidden="true">＋</span><span>Lägg till</span></button>
 </nav>
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<script src="./pattern.js" defer></script>
 <script src="./app.js" defer></script>
 </body>
 </html>
