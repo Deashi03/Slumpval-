@@ -1,6 +1,6 @@
 /* Only cache PUBLIC app-shell files. Never cache private list data. */
-const CACHE = "slumpval-shell-v1";
-const SHELL = ["./", "./index.html", "./style.css", "./app.js", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "slumpval-shell-v2";
+const SHELL = ["./", "./index.html", "./style.css", "./app.js", "./manifest.webmanifest", "./icon.svg", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -14,6 +14,6 @@ self.addEventListener("fetch", event => {
   const scopePath = new URL("./", self.registration.scope).pathname;
   if (!path.startsWith(scopePath)) return;
   const relative = path.slice(scopePath.length);
-  if (!["", "index.html", "style.css", "app.js", "manifest.webmanifest", "icon.svg"].includes(relative)) return;
+  if (!["", "index.html", "style.css", "app.js", "manifest.webmanifest", "icon.svg", "apple-touch-icon.png"].includes(relative)) return;
   event.respondWith(caches.match(event.request, { ignoreSearch: true }).then(cached => cached || fetch(event.request)));
 });
