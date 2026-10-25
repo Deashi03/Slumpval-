@@ -1,6 +1,6 @@
 /* Only cache PUBLIC app-shell files. Never cache private list data. */
-const CACHE = "slumpval-shell-v3";
-const SHELL = ["./", "./index.html", "./style.css", "./app.js", "./manifest.webmanifest", "./icon.svg", "./apple-touch-icon.png"];
+const CACHE = "slumpval-shell-v4";
+const SHELL = ["./", "./index.html", "./style.css", "./pattern.js", "./app.js", "./manifest.webmanifest", "./icon.svg", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -14,7 +14,7 @@ self.addEventListener("fetch", event => {
   const scopePath = new URL("./", self.registration.scope).pathname;
   if (!path.startsWith(scopePath)) return;
   const relative = path.slice(scopePath.length);
-  if (!["", "index.html", "style.css", "app.js", "manifest.webmanifest", "icon.svg", "apple-touch-icon.png"].includes(relative)) return;
+  if (!["", "index.html", "style.css", "pattern.js", "app.js", "manifest.webmanifest", "icon.svg", "apple-touch-icon.png"].includes(relative)) return;
   // Prefer the current public app code online, but preserve offline support.
   // IndexedDB vault data is never requested over the network or cached here.
   event.respondWith((async () => {
