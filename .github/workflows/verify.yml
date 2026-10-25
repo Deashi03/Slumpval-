@@ -1,0 +1,30 @@
+name: Kontrollera Slumpval
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Hämta källkod
+        uses: actions/checkout@v4
+      - name: Installera Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Installera testberoenden
+        run: npm install --no-audit --no-fund
+      - name: Kontrollera Javascript
+        run: npm run check
+      - name: Installera testwebbläsare
+        run: npx playwright install --with-deps chromium
+      - name: Testa appen i webbläsare
+        run: npm test
