@@ -105,6 +105,30 @@
         <button id="addItemsBtn" class="btn btn-primary btn-wide" type="button">Lägg till i listan</button>
         <p class="helper">Nya alternativ läggs till efter de gamla. Det som redan finns i listan ändras inte.</p>
       </section>
+
+      <section id="view-settings" class="app-view hidden" aria-labelledby="settingsTitle">
+        <span class="eyebrow">Sekretess och åtkomst</span>
+        <h1 id="settingsTitle" class="section-title">Inställningar</h1>
+        <div class="settings-card">
+          <label class="field-label" for="sessionDuration">Hur länge ska appen vara upplåst?</label>
+          <select id="sessionDuration" class="settings-select">
+            <option value="0">Lås direkt när jag lämnar appen</option>
+            <option value="900000">15 minuter</option>
+            <option value="3600000">1 timme</option>
+            <option value="14400000">4 timmar</option>
+            <option value="43200000">12 timmar</option>
+            <option value="86400000">24 timmar</option>
+          </select>
+          <p class="helper">Tiden räknas från när du senast ritade mönstret och fortsätter även om appen stängs. När tiden har gått ut krävs mönstret igen.</p>
+          <p id="sessionStatus" class="session-status" role="status" aria-live="polite">Låses när du lämnar appen.</p>
+        </div>
+        <div class="settings-card">
+          <h2 class="settings-heading">Lås omedelbart</h2>
+          <p class="muted">Avsluta den aktuella upplåsningen, oavsett vald tid.</p>
+          <button id="lockNowBtn" class="btn btn-muted btn-wide" type="button">Lås appen nu</button>
+        </div>
+        <p class="helper">Säkerhet: För att kunna öppna appen utan mönstret efter en omstart sparas en tidsbegränsad dekrypteringsnyckel lokalt på den här enheten. Under den valda tiden blir skyddet svagare för någon med tillgång till enheten. Ingen nyckel eller lista skickas till GitHub.</p>
+      </section>
     </section>
   </main>
 </div>
@@ -112,6 +136,7 @@
   <button id="tabDraw" class="tab active" type="button" aria-current="page"><span aria-hidden="true">✳</span><span>Slumpa</span></button>
   <button id="tabList" class="tab" type="button"><span aria-hidden="true">☷</span><span>Listan</span></button>
   <button id="tabAdd" class="tab" type="button"><span aria-hidden="true">＋</span><span>Lägg till</span></button>
+  <button id="tabSettings" class="tab" type="button"><span aria-hidden="true">⚙</span><span>Inställn.</span></button>
 </nav>
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 <script src="./pattern.js" defer></script>
