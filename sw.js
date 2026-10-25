@@ -1,5 +1,5 @@
 /* Only cache PUBLIC app-shell files. Never cache private list data. */
-const CACHE = "slumpval-shell-v4";
+const CACHE = "slumpval-shell-v5";
 const SHELL = ["./", "./index.html", "./style.css", "./pattern.js", "./app.js", "./manifest.webmanifest", "./icon.svg", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
