@@ -1,6 +1,27 @@
 import { test, expect } from "@playwright/test";
 
 const PASSWORD = "Only-for-smoke-tests-123!";
+const PATTERN = [0, 1, 2, 5, 8];
+const WRONG = [0, 3, 6, 7, 8];
+
+// Real mouse/pointer motion through the same SVG coordinates as an iPhone swipe.
+async function drawPattern(page, selector, path = PATTERN) {
+  const rect = await page.locator(selector + " svg").boundingBox();
+  if (!rect) throw Error("Pattern board not visible");
+  const position = i => ({
+    x: rect.x + (50 + 100 * (i % 3)) * rect.width / 300,
+    y: rect.y + (50 + 100 * Math.floor(i / 3)) * rect.height / 300
+  });
+  const first = position(path[0]);
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  for (const dot of path.slice(1)) {
+    const point = position(dot);
+    await page.mouse.move(point.x, point.y, { steps: 5 });
+  }
+  await page.mouse.up();
+}
+
 const FIRST = "En ovanligt lång fråga som naturligt kan radbrytas på flera visuella rader utan att bli ett nytt val";
 const SECOND = "日本語 glosa";
 const THIRD = "RB 24:7";
@@ -8,9 +29,9 @@ const THIRD = "RB 24:7";
 async function createVault(page) {
   await page.goto("/");
   await expect(page.locator("#screen-setup")).toBeVisible();
-  await page.locator("#setupPass").fill(PASSWORD);
-  await page.locator("#setupPassAgain").fill(PASSWORD);
-  await page.locator("#setupBtn").click();
+  await drawPattern(page, "#setupPattern");
+  await expect(page.locator("#setupStatus")).toContainText("samma mönster");
+  await drawPattern(page, "#setupPattern");
   await expect(page.locator("#screen-app")).toBeVisible();
 }
 
@@ -49,11 +70,10 @@ test("private list, newlines, random removal, and persistence across reload", as
   await page.reload();
   console.log("smoke: reloaded");
   await expect(page.locator("#screen-unlock")).toBeVisible();
-  await page.locator("#unlockPass").fill("incorrect-password");
-  await page.locator("#unlockBtn").click();
+  await drawPattern(page, "#unlockPattern", WRONG);
+  await expect(page.locator("#unlockStatus")).toContainText("Fel mönster");
   await expect(page.locator("#screen-app")).toBeHidden();
-  await page.locator("#unlockPass").fill(PASSWORD);
-  await page.locator("#unlockBtn").click();
+  await drawPattern(page, "#unlockPattern");
   console.log("smoke: unlocked");
   await expect(page.locator("#screen-app")).toBeVisible();
   await expect(page.locator("#remainingCount")).toHaveText("2");
@@ -97,8 +117,7 @@ test("one tap clears entire list; you can add again and remove a single item", a
   await expect(page.locator("#listEmpty")).toBeVisible();
   expect(dialogCount).toBe(0);
   await page.reload();
-  await page.locator("#unlockPass").fill(PASSWORD);
-  await page.locator("#unlockBtn").click();
+  await drawPattern(page, "#unlockPattern");
   await expect(page.locator("#remainingCount")).toHaveText("0");
 
   await page.locator("#tabAdd").click();
@@ -128,4 +147,50 @@ test("copy remaining list and isolate a different device/browser profile", async
   } finally {
     await independentContext.close();
   }
+});
+
+test("old password vault migrates to a four-stroke pattern without losing remaining items", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#screen-setup")).toBeVisible();
+  await page.evaluate(async password => {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    const importKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations:250000, hash:"SHA-256"}, importKey, {name:"AES-GCM", length:256}, false, ["encrypt"]);
+    const ct = new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, encoder.encode(JSON.stringify({
+      items:[{id:"legacy-a",text:"Gammal glosa"},{id:"legacy-b",text:"Behåll mig"}]
+    }))));
+    const b64 = bytes => btoa(Array.from(bytes, b => String.fromCharCode(b)).join(""));
+    const db = await new Promise((resolve,reject) => {
+      const request = indexedDB.open("slumpval-local-vault-v1", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise((resolve,reject) => {
+      const tx = db.transaction("vault", "readwrite");
+      tx.objectStore("vault").put({version:1,salt:b64(salt)}, "meta");
+      tx.objectStore("vault").put({iv:b64(iv),data:b64(ct)}, "payload");
+      tx.objectStore("vault").put(7, "revision");
+      tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
+    });
+    db.close();
+  }, PASSWORD);
+  await page.reload();
+  await expect(page.locator("#legacyUnlockArea")).toBeVisible();
+  await expect(page.locator("#unlockPatternArea")).toBeHidden();
+  await page.locator("#unlockPass").fill(PASSWORD);
+  await page.locator("#unlockBtn").click();
+  await expect(page.locator("#screen-setup")).toBeVisible();
+  await expect(page.locator("#setupTitle")).toContainText("mönsterlås");
+  await drawPattern(page, "#setupPattern");
+  await drawPattern(page, "#setupPattern");
+  await expect(page.locator("#screen-app")).toBeVisible();
+  await expect(page.locator("#remainingCount")).toHaveText("2");
+  await expect(page.locator("#listItems .item-text")).toHaveText(["Gammal glosa", "Behåll mig"]);
+  await page.reload();
+  await expect(page.locator("#unlockPatternArea")).toBeVisible();
+  await expect(page.locator("#legacyUnlockArea")).toBeHidden();
+  await drawPattern(page, "#unlockPattern");
+  await expect(page.locator("#remainingCount")).toHaveText("2");
 });
