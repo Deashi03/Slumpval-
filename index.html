@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Privat, krypterad slumpgenerator för listor. Dina uppgifter lämnar inte enheten.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; manifest-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./style.css">
+  <title>Slumpval</title>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Slumpval, startsida"><span class="brandmark" aria-hidden="true">✳</span><span>Slumpval</span></a>
+    <span id="saveState" class="save-state" aria-live="polite">Privat på enheten</span>
+  </header>
+
+  <main>
+    <section id="screen-loading" class="gate" aria-live="polite">
+      <div class="gate-icon" aria-hidden="true">✳</div>
+      <h1>Öppnar Slumpval…</h1>
+      <p>Kontrollerar ditt lokala valv.</p>
+    </section>
+
+    <section id="screen-setup" class="gate hidden" aria-labelledby="setupTitle">
+      <div class="gate-icon" aria-hidden="true">✳</div>
+      <span class="eyebrow">Börja här</span>
+      <h1 id="setupTitle">Skapa ditt privata valv</h1>
+      <p>Listorna sparas endast på den här enheten, krypterade med ett lösenord som bara du känner till.</p>
+      <form id="setupForm" class="form-stack">
+        <label for="setupPass">Välj lösenord <small>(minst 8 tecken)</small></label>
+        <input id="setupPass" type="password" autocomplete="new-password" minlength="8" required placeholder="Ditt lösenord">
+        <label for="setupPassAgain">Upprepa lösenord</label>
+        <input id="setupPassAgain" type="password" autocomplete="new-password" minlength="8" required placeholder="Samma lösenord igen">
+        <p class="helper">Lösenordet kan inte återställas. Du behöver det igen när du öppnar appen på nytt.</p>
+        <button class="btn btn-primary btn-wide" id="setupBtn" type="submit">Skapa valv</button>
+      </form>
+    </section>
+
+    <section id="screen-unlock" class="gate hidden" aria-labelledby="unlockTitle">
+      <div class="gate-icon" aria-hidden="true">✳</div>
+      <span class="eyebrow">Lokalt och krypterat</span>
+      <h1 id="unlockTitle">Lås upp din lista</h1>
+      <p>Din kvarvarande lista ligger sparad på just den här enheten.</p>
+      <form id="unlockForm" class="form-stack">
+        <label for="unlockPass">Lösenord</label>
+        <input id="unlockPass" type="password" autocomplete="current-password" required placeholder="Ange ditt lösenord">
+        <button class="btn btn-primary btn-wide" id="unlockBtn" type="submit">Lås upp</button>
+      </form>
+      <button id="resetVaultBtn" class="link-btn danger-link" type="button">Glömt lösenordet? Radera det lokala valvet</button>
+    </section>
+
+    <section id="screen-app" class="hidden" aria-label="Slumpval">
+      <div class="overview">
+        <div>
+          <span class="eyebrow">Din privata lista</span>
+          <div class="count-wrap"><strong id="remainingCount">0</strong><span>alternativ kvar</span></div>
+        </div>
+        <button id="lockBtn" class="icon-btn" type="button" aria-label="Lås appen" title="Lås appen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        </button>
+      </div>
+
+      <section id="view-draw" class="app-view" aria-labelledby="drawTitle">
+        <h1 id="drawTitle" class="section-title">Slumpa ett alternativ</h1>
+        <div class="selection-card">
+          <span class="selection-label" id="selectionLabel">Redo att slumpa</span>
+          <p id="selectionText" class="selection-text placeholder">Tryck på knappen för att välja ett alternativ från listan.</p>
+          <button id="copySelectedBtn" class="btn btn-muted btn-wide hidden" type="button">
+            <span aria-hidden="true">▢</span> Kopiera alternativet
+          </button>
+        </div>
+        <button id="drawBtn" class="btn btn-primary btn-wide hero-btn" type="button">Slumpa nästa <span aria-hidden="true">→</span></button>
+        <p class="helper text-center">Valet tas bort från den sparade listan innan det visas. Det finns ingen ångra-knapp eller historik.</p>
+        <button id="goToListBtn" type="button" class="link-btn centered">Visa alla kvarvarande alternativ</button>
+      </section>
+
+      <section id="view-list" class="app-view hidden" aria-labelledby="listTitle">
+        <div class="section-heading"><div><span class="eyebrow">Översikt</span><h1 id="listTitle" class="section-title">Kvarvarande lista</h1></div><span class="small-count" id="listCount">0 st</span></div>
+        <div class="action-grid">
+          <button id="copyAllBtn" class="btn btn-muted" type="button">▢ Kopiera listan</button>
+          <button id="clearAllBtn" class="btn btn-danger" type="button">Radera hela listan</button>
+        </div>
+        <p class="helper">Radera hela listan görs direkt med ett tryck, utan ångra-funktion. Borttagna poster sparas inte i någon apphistorik.</p>
+        <ol id="listItems" class="item-list" aria-label="Kvarvarande alternativ"></ol>
+        <p id="listEmpty" class="empty-state hidden">Listan är tom. Lägg till alternativ under <strong>Lägg till</strong>.</p>
+      </section>
+
+      <section id="view-add" class="app-view hidden" aria-labelledby="addTitle">
+        <span class="eyebrow">Fyll på listan</span>
+        <h1 id="addTitle" class="section-title">Lägg till alternativ</h1>
+        <p class="muted">Klistra in eller skriv en lista. <strong>Varje Enter-radbrytning blir ett eget alternativ.</strong> Tomma rader ignoreras.</p>
+        <label class="field-label" for="bulkInput">Nya alternativ</label>
+        <textarea id="bulkInput" rows="11" spellcheck="false" placeholder="Glosa 1&#10;Glosa 2&#10;En lång fråga som får ta så många tecken den behöver"></textarea>
+        <div class="input-preview"><span id="inputCount">0 alternativ att lägga till</span><button id="clearInputBtn" class="link-btn" type="button">Töm fältet</button></div>
+        <button id="addItemsBtn" class="btn btn-primary btn-wide" type="button">Lägg till i listan</button>
+        <p class="helper">Nya alternativ läggs till efter de gamla. Det som redan finns i listan ändras inte.</p>
+      </section>
+    </section>
+  </main>
+</div>
+<nav id="bottomNav" class="bottom-nav hidden" aria-label="Huvudnavigation">
+  <button id="tabDraw" class="tab active" type="button" aria-current="page"><span aria-hidden="true">✳</span><span>Slumpa</span></button>
+  <button id="tabList" class="tab" type="button"><span aria-hidden="true">☷</span><span>Listan</span></button>
+  <button id="tabAdd" class="tab" type="button"><span aria-hidden="true">＋</span><span>Lägg till</span></button>
+</nav>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<script src="./app.js" defer></script>
+</body>
+</html>
