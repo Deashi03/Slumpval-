@@ -247,6 +247,7 @@
       busy = false;
       setupBoard.setEnabled(true);
       if (locking) performLock();
+      else if (vaultKey && !$("screen-app").classList.contains("hidden")) render();
     }
   }
 
@@ -299,6 +300,7 @@
       busy = false;
       unlockBoard.setEnabled(true);
       if (locking) performLock();
+      else if (vaultKey && !$("screen-app").classList.contains("hidden")) render();
     }
   }
 
