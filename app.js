@@ -15,6 +15,11 @@
   let locking = false;
   let hasVault = false;
   let currentView = "draw";
+  let vaultFormat = 0;
+  let setupMode = "new";
+  let firstPattern = null;
+  let setupBoard;
+  let unlockBoard;
   let toastTimer;
 
   function showScreen(id) {
@@ -119,12 +124,12 @@
     });
   }
 
-  async function readSnapshot() {
+  async function readSnapshot(key = vaultKey) {
     const tx = db.transaction(STORE, "readonly");
     const store = tx.objectStore(STORE);
     const [payload, revision] = await Promise.all([request(store.get("payload")), request(store.get("revision"))]);
     if (!payload) throw new Error("Sparad lista saknas");
-    const data = await decryptJSON(payload, vaultKey);
+    const data = await decryptJSON(payload, key);
     return { items: validateItems(data), revision: Number(revision || 0) };
   }
 
@@ -148,6 +153,153 @@
       tx.onabort = () => conflicted ? resolve(false) : reject(tx.error || new Error("Kunde inte spara"));
       tx.onerror = () => {};
     });
+  }
+
+  // Change the entire encrypted vault and its keying metadata in one transaction.
+  // Older browser tabs cannot write an outdated snapshot after the revision changes.
+  function rotateVault(expectedRevision, cipher, meta) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      let conflict = false;
+      const req = store.get("revision");
+      req.onsuccess = () => {
+        if (Number(req.result || 0) !== expectedRevision) {
+          conflict = true;
+          tx.abort();
+          return;
+        }
+        store.put(meta, "meta");
+        store.put(cipher, "payload");
+        store.put(expectedRevision + 1, "revision");
+      };
+      tx.oncomplete = () => resolve(true);
+      tx.onabort = () => conflict ? resolve(false) : reject(tx.error || new Error("Kunde inte byta lås"));
+    });
+  }
+
+  function showAuth() {
+    if (!hasVault) {
+      beginPatternSetup("new");
+      return;
+    }
+    const isPattern = vaultFormat === 2;
+    $("unlockPatternArea").classList.toggle("hidden", !isPattern);
+    $("legacyUnlockArea").classList.toggle("hidden", isPattern);
+    $("unlockDescription").textContent = isPattern
+      ? "Rita ditt sparade mönster för att öppna listan."
+      : "Ange ditt tidigare lösenord en sista gång för att övergå till mönsterlås utan att förlora listan.";
+    $("unlockStatus").textContent = "Dra mönstret mellan punkterna.";
+    unlockBoard?.reset();
+    showScreen("unlock");
+  }
+
+  function beginPatternSetup(mode) {
+    setupMode = mode;
+    firstPattern = null;
+    setupBoard?.reset();
+    $("setupTitle").textContent = mode === "migrate" ? "Byt till mönsterlås" : "Skapa ditt mönsterlås";
+    $("setupDescription").textContent = mode === "migrate"
+      ? "Din befintliga lista bevaras. Dra ett nytt 3×3-mönster med minst fyra streck (fem punkter)."
+      : "Dra fingret över punkterna. Minst fyra streck (fem punkter) krävs för att skapa ditt privata valv.";
+    $("setupStatus").textContent = "Rita ditt nya mönster.";
+    showScreen("setup");
+  }
+
+  async function completePatternSetup(pattern) {
+    if (busy) return;
+    busy = true;
+    setupBoard.setEnabled(false);
+    try {
+      const salt = secureRandom(16);
+      const key = await deriveKey("slumpval-pattern-v2:" + pattern, salt);
+      const meta = { version: 2, salt: u8ToBase64(salt) };
+      if (setupMode === "migrate") {
+        if (!vaultKey) throw new Error("Du behöver låsa upp ditt tidigare valv först");
+        const snapshot = await readSnapshot(vaultKey);
+        const cipher = await encryptJSON({ items: snapshot.items }, key);
+        if (!await rotateVault(snapshot.revision, cipher, meta)) {
+          throw new Error("Listan ändrades samtidigt, försök igen");
+        }
+        items = snapshot.items;
+      } else {
+        if (await getValue("meta")) throw new Error("Ett valv finns redan");
+        const cipher = await encryptJSON({ items: [] }, key);
+        await writeInitialVault(meta, cipher);
+        items = [];
+      }
+      vaultKey = key;
+      vaultFormat = 2;
+      hasVault = true;
+      firstPattern = null;
+      selection = null;
+      showScreen("app");
+      changeView(setupMode === "migrate" ? "list" : "add");
+      render();
+      $("saveState").textContent = "Sparad på enheten";
+      toast(setupMode === "migrate" ? "Mönsterlåset är aktiverat. Listan är bevarad." : "Mönsterlåset är skapat.");
+    } catch (error) {
+      errorMessage(error);
+      // In a failed migration the existing password key and encrypted list remain intact.
+      firstPattern = null;
+      $("setupStatus").textContent = "Kunde inte spara mönstret. Rita ett nytt mönster.";
+    } finally {
+      busy = false;
+      setupBoard.setEnabled(true);
+      if (locking) performLock();
+    }
+  }
+
+  function onSetupPattern(points) {
+    if (busy) return;
+    if (points.length < 5) {
+      $("setupStatus").textContent = "För kort mönster. Dra minst fyra streck mellan fem punkter.";
+      return;
+    }
+    const pattern = points.join("-");
+    if (firstPattern === null) {
+      firstPattern = pattern;
+      $("setupStatus").textContent = "Bra! Rita exakt samma mönster en gång till.";
+      return;
+    }
+    if (firstPattern !== pattern) {
+      firstPattern = null;
+      $("setupStatus").textContent = "Mönstren skilde sig. Börja om med ett nytt mönster.";
+      return;
+    }
+    firstPattern = null;
+    void completePatternSetup(pattern);
+  }
+
+  async function unlockPattern(points) {
+    if (busy) return;
+    if (points.length < 5) {
+      $("unlockStatus").textContent = "Rita minst fyra streck (fem punkter).";
+      return;
+    }
+    busy = true;
+    unlockBoard.setEnabled(false);
+    const pattern = points.join("-");
+    try {
+      const meta = await getValue("meta");
+      if (!meta || meta.version !== 2) throw new Error("Fel typ av valv");
+      const candidate = await deriveKey("slumpval-pattern-v2:" + pattern, base64ToU8(meta.salt));
+      const snapshot = await readSnapshot(candidate);
+      vaultKey = candidate;
+      items = snapshot.items;
+      selection = null;
+      showScreen("app");
+      changeView("draw");
+      render();
+      $("saveState").textContent = "Sparad på enheten";
+    } catch (error) {
+      vaultKey = null;
+      $("unlockStatus").textContent = "Fel mönster. Försök igen.";
+    } finally {
+      busy = false;
+      unlockBoard.setEnabled(true);
+      if (locking) performLock();
+    }
   }
 
   async function mutate(buildChange) {
@@ -365,9 +517,10 @@
     vaultKey = null;
     items = [];
     selection = null;
+    firstPattern = null;
     locking = false;
-    $("setupPass").value = "";
-    $("setupPassAgain").value = "";
+    setupBoard?.reset();
+    unlockBoard?.reset();
     $("unlockPass").value = "";
     $("bulkInput").value = "";
     $("listItems").replaceChildren();
@@ -375,53 +528,27 @@
     $("toast").classList.add("hidden");
     updateInputCount();
     $("saveState").textContent = "Privat på enheten";
-    showScreen(hasVault ? "unlock" : "setup");
+    showAuth();
   }
 
   function lock() {
-    if (!vaultKey) {
-      if (busy) locking = true;
-      $("setupPass").value = "";
-      $("setupPassAgain").value = "";
+    if (busy) {
+      locking = true;
       $("unlockPass").value = "";
       return;
     }
-    if (busy) locking = true;
-    else performLock();
-  }
-
-  async function createVault(event) {
-    event.preventDefault();
-    if (busy) return;
-    const password = $("setupPass").value;
-    if (password.length < 8) { toast("Använd minst 8 tecken i lösenordet."); return; }
-    if (password !== $("setupPassAgain").value) { toast("Lösenorden stämmer inte överens."); return; }
-    busy = true;
-    $("setupBtn").disabled = true;
-    try {
-      if (await getValue("meta")) { hasVault = true; toast("Valvet finns redan. Lås upp det."); showScreen("unlock"); return; }
-      const salt = secureRandom(16);
-      const key = await deriveKey(password, salt);
-      const payload = await encryptJSON({ items: [] }, key);
-      await writeInitialVault({ version: 1, salt: u8ToBase64(salt) }, payload);
-      vaultKey = key;
-      hasVault = true;
-      items = [];
-      selection = null;
-      showScreen("app");
-      changeView("add");
-      toast("Ditt privata valv är skapat.");
-      $("setupPass").value = "";
-      $("setupPassAgain").value = "";
-    } catch (error) {
-      errorMessage(error);
-    } finally {
-      busy = false;
-      $("setupBtn").disabled = false;
-      if (locking) performLock();
+    firstPattern = null;
+    if (vaultKey) {
+      performLock();
+    } else {
+      $("unlockPass").value = "";
+      setupBoard?.reset();
+      unlockBoard?.reset();
+      showAuth();
     }
   }
 
+  // Used only for previously created password-based (version 1) vaults.
   async function unlockVault(event) {
     event.preventDefault();
     if (busy) return;
@@ -430,21 +557,16 @@
     $("unlockBtn").disabled = true;
     try {
       const meta = await getValue("meta");
-      if (!meta || !meta.salt) throw new Error("Inget valv hittades");
-      const key = await deriveKey(submittedPassword, base64ToU8(meta.salt));
-      vaultKey = key;
-      const snapshot = await readSnapshot();
+      if (!meta || meta.version === 2) throw new Error("Lösenordsvalvet finns inte");
+      const oldKey = await deriveKey(submittedPassword, base64ToU8(meta.salt));
+      const snapshot = await readSnapshot(oldKey);
+      vaultKey = oldKey;
       items = snapshot.items;
-      selection = null;
       $("unlockPass").value = "";
-      showScreen("app");
-      changeView("draw");
-      render();
-      $("saveState").textContent = "Sparad på enheten";
+      beginPatternSetup("migrate");
     } catch (error) {
       vaultKey = null;
-      console.error("Unlock:", error && error.name ? error.name : "unavailable");
-      toast("Fel lösenord eller skadat lokalt valv.");
+      toast("Fel tidigare lösenord eller skadat valv.");
     } finally {
       busy = false;
       $("unlockBtn").disabled = false;
@@ -468,14 +590,17 @@
       items = [];
       selection = null;
       $("unlockPass").value = "";
-      showScreen("setup");
+      vaultFormat = 0;
+      firstPattern = null;
+      beginPatternSetup("new");
       toast("Det lokala valvet har raderats.");
     } catch (error) { errorMessage(error); }
     finally { busy = false; }
   }
 
   function bind() {
-    $("setupForm").addEventListener("submit", createVault);
+    setupBoard = window.SlumpvalPattern.mount($("setupPattern"), onSetupPattern);
+    unlockBoard = window.SlumpvalPattern.mount($("unlockPattern"), points => { void unlockPattern(points); });
     $("unlockForm").addEventListener("submit", unlockVault);
     $("resetVaultBtn").addEventListener("click", resetVault);
     $("lockBtn").addEventListener("click", lock);
@@ -503,8 +628,10 @@
     }
     try {
       db = await openDatabase();
-      hasVault = Boolean(await getValue("meta"));
-      showScreen(hasVault ? "unlock" : "setup");
+      const meta = await getValue("meta");
+      hasVault = Boolean(meta);
+      vaultFormat = meta?.version === 2 ? 2 : 1;
+      showAuth();
     } catch (error) {
       $("screen-loading").querySelector("h1").textContent = "Kan inte öppna lokal lagring";
       $("screen-loading").querySelector("p").textContent = "Kontrollera att webbläsaren tillåter lagring och att du inte använder privat läge.";
