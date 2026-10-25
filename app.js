@@ -741,7 +741,7 @@
     } finally {
       busy = false;
       $("unlockBtn").disabled = false;
-      if (locking) performLock();
+      if (locking) finishDeferredLock();
     }
   }
 
