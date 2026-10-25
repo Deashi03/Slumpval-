@@ -13,6 +13,7 @@
   let selection = null;
   let busy = false;
   let locking = false;
+  let hasVault = false;
   let currentView = "draw";
   let toastTimer;
 
@@ -374,11 +375,12 @@
     $("toast").classList.add("hidden");
     updateInputCount();
     $("saveState").textContent = "Privat på enheten";
-    showScreen("unlock");
+    showScreen(hasVault ? "unlock" : "setup");
   }
 
   function lock() {
     if (!vaultKey) {
+      if (busy) locking = true;
       $("setupPass").value = "";
       $("setupPassAgain").value = "";
       $("unlockPass").value = "";
@@ -397,12 +399,13 @@
     busy = true;
     $("setupBtn").disabled = true;
     try {
-      if (await getValue("meta")) { toast("Valvet finns redan. Lås upp det."); showScreen("unlock"); return; }
+      if (await getValue("meta")) { hasVault = true; toast("Valvet finns redan. Lås upp det."); showScreen("unlock"); return; }
       const salt = secureRandom(16);
       const key = await deriveKey(password, salt);
       const payload = await encryptJSON({ items: [] }, key);
       await writeInitialVault({ version: 1, salt: u8ToBase64(salt) }, payload);
       vaultKey = key;
+      hasVault = true;
       items = [];
       selection = null;
       showScreen("app");
@@ -459,6 +462,7 @@
         tx.onabort = () => reject(tx.error || new Error("Kunde inte återställa valvet"));
       });
       vaultKey = null;
+      hasVault = false;
       items = [];
       selection = null;
       $("unlockPass").value = "";
@@ -497,7 +501,8 @@
     }
     try {
       db = await openDatabase();
-      showScreen(await getValue("meta") ? "unlock" : "setup");
+      hasVault = Boolean(await getValue("meta"));
+      showScreen(hasVault ? "unlock" : "setup");
     } catch (error) {
       $("screen-loading").querySelector("h1").textContent = "Kan inte öppna lokal lagring";
       $("screen-loading").querySelector("p").textContent = "Kontrollera att webbläsaren tillåter lagring och att du inte använder privat läge.";
