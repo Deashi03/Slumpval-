@@ -12,3 +12,12 @@
 .pattern-dot.selected{fill:#eff8ff}
 .pattern-hit{fill:transparent;stroke:none}
 @media(max-width:370px){.pattern-wrap{width:min(100%,285px)}}
+
+/* Private unlock duration settings */
+.settings-card{border:1px solid var(--stroke);background:var(--panel);border-radius:18px;padding:18px 17px;margin:14px 0 18px}
+.settings-card .field-label{margin:0 0 13px}
+.settings-select{display:block;width:100%;min-height:53px;border:1px solid #426180;border-radius:13px;background:#20334d;color:var(--text);padding:12px;font:inherit;font-size:15px}
+.settings-select:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.settings-heading{font-size:17px;margin:0 0 7px}
+.settings-card .muted{margin:6px 0 17px}
+.session-status{border-top:1px solid var(--stroke);padding-top:15px;margin:18px 0 0;font-size:13px;color:#a5d5ff;font-weight:650}
