@@ -213,13 +213,19 @@ test("chosen duration persists across a closed browser tab without another gestu
       q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);
     })));
     db.close();
-    return {session:entries[0],duration:entries[1]};
+    return {
+      duration: entries[1],
+      hasKey: entries[0]?.key instanceof CryptoKey,
+      nonExtractable: entries[0]?.key?.extractable === false,
+      noPattern: !Object.prototype.hasOwnProperty.call(entries[0] || {}, "pattern"),
+      expiresAt: entries[0]?.expiresAt
+    };
   });
   expect(stored.duration).toBe(3600000);
-  expect(stored.session).toHaveProperty("key");
-  expect(stored.session.key.extractable).toBe(false);
-  expect(stored.session).not.toHaveProperty("pattern");
-  expect(stored.session.expiresAt).toBeGreaterThan(Date.now());
+  expect(stored.hasKey).toBe(true);
+  expect(stored.nonExtractable).toBe(true);
+  expect(stored.noPattern).toBe(true);
+  expect(stored.expiresAt).toBeGreaterThan(Date.now());
   await page.close();
   const reopened = await context.newPage();
   await reopened.goto("/");
