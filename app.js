@@ -425,12 +425,13 @@
   async function unlockVault(event) {
     event.preventDefault();
     if (busy) return;
+    const submittedPassword = $("unlockPass").value;
     busy = true;
     $("unlockBtn").disabled = true;
     try {
       const meta = await getValue("meta");
       if (!meta || !meta.salt) throw new Error("Inget valv hittades");
-      const key = await deriveKey($("unlockPass").value, base64ToU8(meta.salt));
+      const key = await deriveKey(submittedPassword, base64ToU8(meta.salt));
       vaultKey = key;
       const snapshot = await readSnapshot();
       items = snapshot.items;
